@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
+const crypto = require('crypto');
 const gameLogic = require('./gameLogic');
 
 const app = express();
@@ -10,80 +10,79 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Stockage des salles
-const rooms = {};
+// Utilisation d'un Map pour les salles (plus fiable)
+const rooms = new Map();
 
-// Générer un code aléatoire à 6 caractères
 function generateRoomCode() {
+    // Codes plus lisibles
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-        code += chars[Math.floor(Math.random() * chars.length)];
-    }
+    let code;
+    do {
+        code = '';
+        for (let i = 0; i < 6; i++) {
+            code += chars[Math.floor(Math.random() * chars.length)];
+        }
+    } while (rooms.has(code));
     return code;
 }
 
-// Nettoyer les salles vides toutes les heures
-setInterval(() => {
-    for (const [code, room] of Object.entries(rooms)) {
-        const now = Date.now();
-        if (room.gameState.gameActive === false && now - room.createdAt > 3600000) {
-            delete rooms[code];
-        }
-        if (room.players.sud === null && room.players.nord === null && now - room.createdAt > 1800000) {
-            delete rooms[code];
-        }
-    }
-}, 3600000);
-
 // API: Créer une partie
 app.post('/api/create-room', (req, res) => {
-    let code = generateRoomCode();
-    while (rooms[code]) {
-        code = generateRoomCode();
-    }
+    const code = generateRoomCode();
+    const roomId = crypto.randomUUID(); // ID interne unique
     
-    rooms[code] = {
+    rooms.set(code, {
+        id: roomId,
         gameState: gameLogic.createInitialState(),
         players: { sud: null, nord: null },
-        playerSessions: {},
-        createdAt: Date.now()
-    };
+        playerSessions: new Map(),
+        createdAt: Date.now(),
+        lastActivity: Date.now()
+    });
+    
+    console.log(`[SERVER] Salle créée: ${code} - Total salles: ${rooms.size}`);
     
     res.json({ success: true, roomCode: code });
 });
 
-// API: Rejoindre une partie
+// API: Rejoindre
 app.post('/api/join-room', (req, res) => {
     const { roomCode, playerId } = req.body;
-    const room = rooms[roomCode];
+    const room = rooms.get(roomCode);
+    
+    console.log(`[SERVER] Tentative join: code=${roomCode}, player=${playerId?.substring(0,8)}...`);
     
     if (!room) {
+        console.log(`[SERVER] Salle ${roomCode} inexistante`);
         return res.json({ success: false, reason: "Code invalide" });
     }
     
+    room.lastActivity = Date.now();
+    
     if (!room.players.sud) {
         room.players.sud = playerId;
-        room.playerSessions[playerId] = { camp: gameLogic.SUD, roomCode };
-        return res.json({ success: true, camp: gameLogic.SUD, roomCode, message: "Vous êtes SUD" });
+        room.playerSessions.set(playerId, { camp: gameLogic.SUD });
+        console.log(`[SERVER] ${playerId} rejoint comme SUD dans ${roomCode}`);
+        return res.json({ success: true, camp: gameLogic.SUD, roomCode });
     } 
     else if (!room.players.nord && room.players.sud !== playerId) {
         room.players.nord = playerId;
-        room.playerSessions[playerId] = { camp: gameLogic.NORD, roomCode };
-        return res.json({ success: true, camp: gameLogic.NORD, roomCode, message: "Vous êtes NORD" });
+        room.playerSessions.set(playerId, { camp: gameLogic.NORD });
+        console.log(`[SERVER] ${playerId} rejoint comme NORD dans ${roomCode} - PARTIE PRÊTE !`);
+        return res.json({ success: true, camp: gameLogic.NORD, roomCode });
     }
     else if (room.players.sud === playerId || room.players.nord === playerId) {
-        const camp = room.playerSessions[playerId]?.camp;
-        return res.json({ success: true, camp, roomCode, message: "Reconnexion" });
+        const camp = room.playerSessions.get(playerId)?.camp;
+        console.log(`[SERVER] ${playerId} rejoint comme ${camp} (reconnexion)`);
+        return res.json({ success: true, camp, roomCode });
     }
-    else {
-        return res.json({ success: false, reason: "Partie pleine" });
-    }
+    
+    return res.json({ success: false, reason: "Partie pleine" });
 });
 
 // API: État du jeu
 app.get('/api/game-state/:roomCode', (req, res) => {
-    const room = rooms[req.params.roomCode];
+    const room = rooms.get(req.params.roomCode);
     const { playerId } = req.query;
     
     if (!room) {
@@ -91,7 +90,10 @@ app.get('/api/game-state/:roomCode', (req, res) => {
     }
     
     const hasBothPlayers = room.players.sud && room.players.nord;
-    const myCamp = playerId ? room.playerSessions[playerId]?.camp : null;
+    const myCamp = playerId ? room.playerSessions.get(playerId)?.camp : null;
+    
+    // Log de debug (désactivable)
+    // console.log(`[STATE] Salle ${req.params.roomCode}: sud=${!!room.players.sud}, nord=${!!room.players.nord}`);
     
     res.json({
         board: hasBothPlayers ? room.gameState.board : null,
@@ -111,24 +113,25 @@ app.get('/api/game-state/:roomCode', (req, res) => {
 
 // API: Jouer un coup
 app.post('/api/move/:roomCode', (req, res) => {
-    const room = rooms[req.params.roomCode];
+    const room = rooms.get(req.params.roomCode);
     const { playerId, caseIndex } = req.body;
     
     if (!room) {
         return res.json({ success: false, reason: "Salle inexistante" });
     }
     
-    if (!room.playerSessions[playerId]) {
+    if (!room.playerSessions.has(playerId)) {
         return res.json({ success: false, reason: "Joueur non reconnu" });
     }
     
-    const camp = room.playerSessions[playerId].camp;
+    const camp = room.playerSessions.get(playerId).camp;
+    const game = room.gameState;
     
-    if (!room.gameState.gameActive) {
-        return res.json({ success: false, reason: "Partie terminée", gameOver: true });
+    if (!game.gameActive) {
+        return res.json({ success: false, reason: "Partie terminée" });
     }
     
-    if (room.gameState.currentTurn !== camp) {
+    if (game.currentTurn !== camp) {
         return res.json({ success: false, reason: "Ce n'est pas votre tour" });
     }
     
@@ -136,26 +139,27 @@ app.post('/api/move/:roomCode', (req, res) => {
         return res.json({ success: false, reason: "En attente d'un adversaire" });
     }
     
-    const result = gameLogic.executeMove(room.gameState.board, room.gameState.scores, camp, caseIndex);
+    const result = gameLogic.executeMove(game.board, game.scores, camp, caseIndex);
     
     if (!result.success) {
         return res.json({ success: false, reason: result.reason });
     }
     
-    room.gameState.lastMove = { player: camp, caseIndex, timestamp: Date.now() };
+    game.lastMove = { player: camp, caseIndex, timestamp: Date.now() };
     
-    const gameEnded = gameLogic.checkGameOver(room.gameState.board, room.gameState.scores, room.gameState);
+    const gameEnded = gameLogic.checkGameOver(game.board, game.scores, game);
     
     if (!gameEnded) {
-        room.gameState.currentTurn = gameLogic.getAdversaire(camp);
+        game.currentTurn = gameLogic.getAdversaire(camp);
     }
     
+    room.lastActivity = Date.now();
     res.json({ success: true });
 });
 
 // API: Réinitialiser
 app.post('/api/reset/:roomCode', (req, res) => {
-    const room = rooms[req.params.roomCode];
+    const room = rooms.get(req.params.roomCode);
     if (room) {
         room.gameState = gameLogic.createInitialState();
         res.json({ success: true });
@@ -164,6 +168,18 @@ app.post('/api/reset/:roomCode', (req, res) => {
     }
 });
 
+// Nettoyage des salles inactives (toutes les 5 minutes)
+setInterval(() => {
+    const now = Date.now();
+    for (const [code, room] of rooms) {
+        if (now - room.lastActivity > 3600000) { // 1h d'inactivité
+            rooms.delete(code);
+            console.log(`[CLEANUP] Salle ${code} supprimée (inactive)`);
+        }
+    }
+}, 300000);
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Serveur Awélé sur http://localhost:${PORT}`);
+    console.log(`Process ID: ${process.pid}`);
 });

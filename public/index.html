@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Awélé - Multijoueur en ligne</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>AWÉLÉ <span class="badge">ONLINE</span></h1>
+        
+        <div id="homeScreen" class="screen">
+            <div class="home-content">
+                <div class="logo">🎲</div>
+                <h2>Jeu de semis traditionnel</h2>
+                <p>Affrontez un adversaire en ligne</p>
+                <div class="home-buttons">
+                    <button id="createRoomBtn" class="btn btn-primary">➕ Créer une partie</button>
+                    <button id="joinRoomBtn" class="btn btn-secondary">🔑 Rejoindre avec un code</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="createScreen" class="screen hidden">
+            <div class="code-display">
+                <h3>Votre code de partie :</h3>
+                <div class="big-code" id="roomCodeDisplay">----</div>
+                <p>Partagez ce code avec votre adversaire</p>
+                <button id="copyCodeBtn" class="btn-small">📋 Copier</button>
+                <div class="spinner"></div>
+                <p>En attente du second joueur...</p>
+                <button id="backFromCreateBtn" class="btn-link">← Retour</button>
+            </div>
+        </div>
+        
+        <div id="joinScreen" class="screen hidden">
+            <div class="join-content">
+                <h3>Entrez le code de la partie</h3>
+                <input type="text" id="roomCodeInput" placeholder="Ex: A7B3K9" maxlength="6" class="code-input">
+                <button id="confirmJoinBtn" class="btn-primary">Rejoindre</button>
+                <button id="backFromJoinBtn" class="btn-link">← Retour</button>
+                <div id="joinError" class="error-message"></div>
+            </div>
+        </div>
+        
+        <div id="gameScreen" class="screen hidden">
+            <div class="room-info">Salle : <span id="currentRoomCode">---</span></div>
+            
+            <div class="game-info">
+                <div class="scores">
+                    <div class="score-card" id="scoreNord">
+                        <h3>JOUEUR NORD <span id="nordPlayerStatus"></span></h3>
+                        <span class="score-value" id="nordScore">0</span>
+                    </div>
+                    <div class="score-card" id="scoreSud">
+                        <h3>JOUEUR SUD <span id="sudPlayerStatus"></span></h3>
+                        <span class="score-value" id="sudScore">0</span>
+                    </div>
+                </div>
+                <div class="turn-indicator" id="turnIndicator">
+                    <span id="turnMessage">En attente...</span>
+                </div>
+                <div class="message" id="message"></div>
+                <div class="game-buttons">
+                    <button id="resetGameBtn" class="reset-btn">🔄 Nouvelle partie</button>
+                    <button id="leaveGameBtn" class="leave-btn">🏠 Quitter</button>
+                </div>
+            </div>
+
+            <div class="board north-board">
+                <div class="camp-label">🏔️ CAMP NORD</div>
+                <div class="cells" id="northCells"></div>
+            </div>
+
+            <div class="board south-board">
+                <div class="cells" id="southCells"></div>
+                <div class="camp-label">🌴 CAMP SUD</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
